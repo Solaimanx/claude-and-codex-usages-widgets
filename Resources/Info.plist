@@ -4,9 +4,9 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key><string>en</string>
 	<key>CFBundleExecutable</key><string>AIUsageMeter</string>
-	<key>CFBundleIdentifier</key><string>com.mdsolaiman.aiusagemeter</string>
-	<key>CFBundleName</key><string>AI Usage Meter</string>
-	<key>CFBundleDisplayName</key><string>AI Usage Meter</string>
+	<key>CFBundleIdentifier</key><string>com.mdsolaiman.codexclaudeusagewidget</string>
+	<key>CFBundleName</key><string>Codex and Claude Usage Widget</string>
+	<key>CFBundleDisplayName</key><string>Codex and Claude Usage Widget</string>
 	<key>CFBundleIconFile</key><string>AppIcon</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>1.0.0</string>

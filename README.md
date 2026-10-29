@@ -1,6 +1,6 @@
-<p align="center"><img src="Resources/icon.png" width="128" alt="AI Usage Meter icon"></p>
+<p align="center"><img src="Resources/icon.png" width="128" alt="Codex and Claude Usage Widget icon"></p>
 
-# AI Usage Meter
+# Codex and Claude Usage Widget
 
 A tiny macOS menu bar app with a floating widget that shows how much of your
 **Codex** and **Claude Code** rate limits you have left, with countdowns to the
@@ -15,16 +15,16 @@ A tiny macOS menu bar app with a floating widget that shows how much of your
 
 ## Download
 
-Grab `AI-Usage-Meter-macOS.zip` from the [latest release](https://github.com/Solaimanx/ai-usage-meter/releases/latest),
-unzip it and drag **AI Usage Meter** into Applications. The app isn't notarised, so the
+Grab `Codex-Claude-Usage-Widget-macOS.zip` from the [latest release](https://github.com/Solaimanx/ai-usage-meter/releases/latest),
+unzip it and drag **Codex and Claude Usage Widget** into Applications. The app isn't notarised, so the
 first time, right-click it and choose **Open** (or run
-`xattr -dr com.apple.quarantine "/Applications/AI Usage Meter.app"`).
+`xattr -dr com.apple.quarantine "/Applications/Codex and Claude Usage Widget.app"`).
 
 ## Build from source
 
 ```sh
 ./build.sh
-open "build/AI Usage Meter.app"
+open "build/Codex and Claude Usage Widget.app"
 ```
 
 Drag the app into `/Applications` to keep it. To start it at login, add it in

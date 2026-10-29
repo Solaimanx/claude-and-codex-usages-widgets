@@ -79,7 +79,7 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
 
         let menu = NSMenu()
-        let heading = NSMenuItem(title: "AI Usage Meter", action: nil, keyEquivalent: "")
+        let heading = NSMenuItem(title: "Codex and Claude Usage Widget", action: nil, keyEquivalent: "")
         heading.isEnabled = false
         menu.addItem(heading)
         widgetVisibilityItem = NSMenuItem(title: "Hide floating widget", action: #selector(toggleFloatingWidget(_:)), keyEquivalent: "w")
@@ -123,9 +123,9 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.menu = menu
-        statusItem.button?.image = NSImage(systemSymbolName: "chart.bar.fill", accessibilityDescription: "AI Usage Meter")
+        statusItem.button?.image = NSImage(systemSymbolName: "chart.bar.fill", accessibilityDescription: "Codex and Claude Usage Widget")
         statusItem.button?.imagePosition = .imageLeading
-        statusItem.button?.toolTip = "AI Usage Meter · refreshes every 5 minutes"
+        statusItem.button?.toolTip = "Codex and Claude Usage Widget · refreshes every 5 minutes"
 
         createFloatingWidget()
         tickTimer = Timer.scheduledTimer(timeInterval: 1, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
@@ -383,9 +383,11 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
                     self.claudeWeekly = result.1
                     self.claudeStatus = "Live Claude usage"
                 case .failure(let error):
-                    self.claudeFiveHour = nil
-                    self.claudeWeekly = nil
+                    // Keep the last good numbers if they are still in the future.
+                    if let w = self.claudeWeekly, w.resetsAt < Date() { self.claudeWeekly = nil }
+                    if let f = self.claudeFiveHour, f.resetsAt < Date() { self.claudeFiveHour = nil }
                     self.claudeStatus = error.localizedDescription
+                    Self.log("Claude: \(error.localizedDescription)")
                 }
                 self.refreshMessage = "Updated \(self.localTime(self.snapshotUpdated!))"
                 self.refreshActionItem.title = "↻  Check for latest usage"
@@ -426,7 +428,7 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         }
 
         do {
-            try writeJSON(["jsonrpc": "2.0", "id": 1, "method": "initialize", "params": ["clientInfo": ["name": "ai-usage-meter", "version": "1.0"]]], to: input.fileHandleForWriting)
+            try writeJSON(["jsonrpc": "2.0", "id": 1, "method": "initialize", "params": ["clientInfo": ["name": "codex-claude-usage-widget", "version": "1.0"]]], to: input.fileHandleForWriting)
             guard let initialize = readResponse(id: 1, from: output.fileHandleForReading), initialize["error"] == nil else {
                 return .failure(.message("Codex did not initialize"))
             }
@@ -490,6 +492,7 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
               let creds = try? JSONSerialization.jsonObject(with: credData) as? [String: Any],
               let oauth = creds["claudeAiOauth"] as? [String: Any],
               let token = oauth["accessToken"] as? String else {
+            log("Keychain read failed, status \(security.terminationStatus)")
             return .failure(.message("Sign in with `claude` in Terminal first"))
         }
 
@@ -510,6 +513,7 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         _ = semaphore.wait(timeout: .now() + 20)
 
         if status == 401 { return .failure(.message("Claude token expired, run `claude` once")) }
+        if status != 200 { log("Claude HTTP \(status): \(String(data: body ?? Data(), encoding: .utf8)?.prefix(300) ?? "")") }
         guard status == 200, let body,
               let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
               let five = claudeWindow(json["five_hour"]),
@@ -519,16 +523,27 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         return .success((five, weekly))
     }
 
+    nonisolated static func log(_ message: String) {
+        let url = URL(fileURLWithPath: NSHomeDirectory() + "/Library/Logs/CodexClaudeUsageWidget.log")
+        let line = "\(Date()) \(message)\n"
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile(); handle.write(line.data(using: .utf8)!); try? handle.close()
+        } else { try? line.write(to: url, atomically: true, encoding: .utf8) }
+    }
+
     nonisolated private static func claudeWindow(_ raw: Any?) -> UsageWindow? {
         guard let object = raw as? [String: Any],
-              let utilization = (object["utilization"] as? NSNumber)?.doubleValue,
-              let resetString = object["resets_at"] as? String else { return nil }
+              let utilization = (object["utilization"] as? NSNumber)?.doubleValue else { return nil }
+        let used = min(100, max(0, Int(utilization.rounded())))
+        // resets_at is null when no window is active yet (nothing used since the last reset).
+        guard let resetString = object["resets_at"] as? String else {
+            return UsageWindow(usedPercent: used, resetsAt: .distantFuture)
+        }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         guard let reset = formatter.date(from: resetString)
                 ?? ISO8601DateFormatter().date(from: resetString) else { return nil }
-        let used = Int(utilization.rounded())
-        return UsageWindow(usedPercent: min(100, max(0, used)), resetsAt: reset)
+        return UsageWindow(usedPercent: used, resetsAt: reset)
     }
 
     nonisolated private static func makeWindow(_ object: [String: Any]) -> UsageWindow? {
@@ -568,7 +583,7 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         percent.stringValue = "\(100 - window.usedPercent)% left"
-        time.stringValue = "\(Self.compactTimeLeft(window.resetsAt)) left"
+        time.stringValue = window.resetsAt == .distantFuture ? "Starts when you use it" : "\(Self.compactTimeLeft(window.resetsAt)) left"
     }
 
     private func updateLabels() {
