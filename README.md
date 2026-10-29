@@ -21,6 +21,14 @@ open "build/AI Usage Meter.app"
 Drag the app into `/Applications` to keep it. To start it at login, add it in
 System Settings > General > Login Items.
 
+## Features
+
+- Floating, draggable widget that stays on top across all Spaces
+- Remaining percentage and reset countdown for the 5-hour and weekly windows
+- Settings menu: show Codex, Claude Code, or both
+- Widget colour themes: Classic (black), Light, Midnight blue, Forest, Sunset
+- Menu bar icon with manual refresh
+
 ## How it reads usage
 
 - **Codex:** runs `codex app-server` locally and asks it for the account's rate limits.
@@ -32,4 +40,10 @@ System Settings > General > Login Items.
 
 Usage refreshes every 5 minutes, or on demand from the menu bar.
 
+## Licence
+
+MIT, see [LICENSE](LICENSE).
+
 > This uses an undocumented Anthropic endpoint, so it may change without notice.
+
+> Not affiliated with OpenAI or Anthropic.
