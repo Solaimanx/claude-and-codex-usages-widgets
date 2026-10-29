@@ -11,6 +11,9 @@ done
 lipo -create build/AIUsageMeter-arm64 build/AIUsageMeter-x86_64 -output "$APP/Contents/MacOS/AIUsageMeter"
 rm build/AIUsageMeter-*
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 codesign --force --sign "${SIGN_IDENTITY:--}" "$APP"
 echo "Built $APP"
+(cd build && ditto -c -k --keepParent "AI Usage Meter.app" AI-Usage-Meter-macOS.zip)
+echo "Zipped build/AI-Usage-Meter-macOS.zip"

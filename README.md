@@ -1,3 +1,5 @@
+<p align="center"><img src="Resources/icon.png" width="128" alt="AI Usage Meter icon"></p>
+
 # AI Usage Meter
 
 A tiny macOS menu bar app with a floating widget that shows how much of your
@@ -11,7 +13,14 @@ A tiny macOS menu bar app with a floating widget that shows how much of your
 - [Codex CLI](https://github.com/openai/codex) signed in, for the Codex section
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) signed in with a Claude Pro/Max account (`claude` then `/login`), for the Claude section
 
-## Build and run
+## Download
+
+Grab `AI-Usage-Meter-macOS.zip` from the [latest release](https://github.com/Solaimanx/ai-usage-meter/releases/latest),
+unzip it and drag **AI Usage Meter** into Applications. The app isn't notarised, so the
+first time, right-click it and choose **Open** (or run
+`xattr -dr com.apple.quarantine "/Applications/AI Usage Meter.app"`).
+
+## Build from source
 
 ```sh
 ./build.sh
