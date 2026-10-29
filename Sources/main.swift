@@ -13,6 +13,26 @@ private enum UsageReadError: LocalizedError {
     }
 }
 
+private struct WidgetTheme {
+    let id: String
+    let name: String
+    let background: NSColor
+    let border: NSColor
+    let primaryText: NSColor
+    let secondaryText: NSColor
+    let accent: NSColor
+    let dark: Bool
+
+    static let all: [WidgetTheme] = [
+        WidgetTheme(id: "classic", name: "Classic (black)", background: NSColor(srgbRed: 0.025, green: 0.03, blue: 0.04, alpha: 0.98), border: NSColor(white: 0.24, alpha: 0.55), primaryText: .white, secondaryText: NSColor(white: 0.6, alpha: 1), accent: .systemTeal, dark: true),
+        WidgetTheme(id: "light", name: "Light", background: NSColor(white: 0.97, alpha: 0.98), border: NSColor(white: 0.75, alpha: 0.6), primaryText: .black, secondaryText: NSColor(white: 0.4, alpha: 1), accent: NSColor(srgbRed: 0.0, green: 0.45, blue: 0.55, alpha: 1), dark: false),
+        WidgetTheme(id: "midnight", name: "Midnight blue", background: NSColor(srgbRed: 0.05, green: 0.08, blue: 0.2, alpha: 0.98), border: NSColor(srgbRed: 0.25, green: 0.3, blue: 0.5, alpha: 0.6), primaryText: .white, secondaryText: NSColor(srgbRed: 0.65, green: 0.7, blue: 0.85, alpha: 1), accent: NSColor(srgbRed: 0.45, green: 0.7, blue: 1, alpha: 1), dark: true),
+        WidgetTheme(id: "forest", name: "Forest", background: NSColor(srgbRed: 0.04, green: 0.13, blue: 0.08, alpha: 0.98), border: NSColor(srgbRed: 0.2, green: 0.35, blue: 0.25, alpha: 0.6), primaryText: .white, secondaryText: NSColor(srgbRed: 0.6, green: 0.75, blue: 0.65, alpha: 1), accent: NSColor(srgbRed: 0.45, green: 0.9, blue: 0.55, alpha: 1), dark: true),
+        WidgetTheme(id: "sunset", name: "Sunset", background: NSColor(srgbRed: 0.2, green: 0.06, blue: 0.08, alpha: 0.98), border: NSColor(srgbRed: 0.45, green: 0.2, blue: 0.2, alpha: 0.6), primaryText: .white, secondaryText: NSColor(srgbRed: 0.85, green: 0.65, blue: 0.6, alpha: 1), accent: NSColor(srgbRed: 1, green: 0.65, blue: 0.3, alpha: 1), dark: true),
+    ]
+    static func named(_ id: String?) -> WidgetTheme { all.first { $0.id == id } ?? all[0] }
+}
+
 @MainActor
 final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
     private var codexFiveHour: UsageWindow?
@@ -41,6 +61,19 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
     private var claudeWeeklyTime: NSTextField!
     private var claudeWeeklyPercent: NSTextField!
     private var widgetUpdatedLabel: NSTextField!
+    private var widgetBackground: NSView!
+    private var codexSectionView: NSView!
+    private var claudeSectionView: NSView!
+    private var sectionSeparator: NSBox!
+    private var headingLabels: [NSTextField] = []
+    private var subheadingLabels: [NSTextField] = []
+    private var showCodexItem: NSMenuItem!
+    private var showClaudeItem: NSMenuItem!
+    private var themeItems: [NSMenuItem] = []
+    private let defaults = UserDefaults.standard
+    private var showCodex: Bool { defaults.object(forKey: "showCodex") as? Bool ?? true }
+    private var showClaude: Bool { defaults.object(forKey: "showClaude") as? Bool ?? true }
+    private var theme: WidgetTheme { WidgetTheme.named(defaults.string(forKey: "theme")) }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -58,6 +91,28 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         claudeConnectItem = NSMenuItem(title: "Connect Claude usage…", action: #selector(requestClaudeAccess(_:)), keyEquivalent: "")
         claudeConnectItem.target = self
         menu.addItem(claudeConnectItem)
+        menu.addItem(.separator())
+        let settingsItem = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
+        let settings = NSMenu()
+        showCodexItem = NSMenuItem(title: "Show Codex", action: #selector(toggleCodex(_:)), keyEquivalent: "")
+        showCodexItem.target = self
+        settings.addItem(showCodexItem)
+        showClaudeItem = NSMenuItem(title: "Show Claude Code", action: #selector(toggleClaude(_:)), keyEquivalent: "")
+        showClaudeItem.target = self
+        settings.addItem(showClaudeItem)
+        settings.addItem(.separator())
+        let themeHeading = NSMenuItem(title: "Widget colour", action: nil, keyEquivalent: "")
+        themeHeading.isEnabled = false
+        settings.addItem(themeHeading)
+        for t in WidgetTheme.all {
+            let item = NSMenuItem(title: t.name, action: #selector(chooseTheme(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = t.id
+            settings.addItem(item)
+            themeItems.append(item)
+        }
+        settingsItem.submenu = settings
+        menu.addItem(settingsItem)
         menu.addItem(.separator())
 
         updateItem = NSMenuItem(title: refreshMessage, action: nil, keyEquivalent: "")
@@ -105,6 +160,7 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         background.layer?.borderColor = NSColor(white: 0.24, alpha: 0.55).cgColor
         background.layer?.masksToBounds = true
         widgetPanel.contentView = background
+        widgetBackground = background
 
         codexFiveHourTime = makeWidgetValue()
         codexFiveHourPercent = makeWidgetPercent()
@@ -134,6 +190,9 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         )
         let separator = NSBox()
         separator.boxType = .separator
+        codexSectionView = codexSection
+        claudeSectionView = claudeSection
+        sectionSeparator = separator
         let stack = NSStackView(views: [codexSection, separator, claudeSection, widgetUpdatedLabel])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -152,6 +211,7 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
             widgetUpdatedLabel.widthAnchor.constraint(equalTo: stack.widthAnchor)
         ])
 
+        applySettings()
         if let screen = NSScreen.main {
             let visible = screen.visibleFrame
             widgetPanel.setFrameOrigin(NSPoint(x: visible.maxX - panelSize.width - 20, y: visible.maxY - panelSize.height - 18))
@@ -164,6 +224,7 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         let heading = NSTextField(labelWithString: title)
         heading.font = .systemFont(ofSize: 9, weight: .bold)
         heading.textColor = NSColor(white: 0.58, alpha: 1)
+        headingLabels.append(heading)
         let fiveHour = makeWidgetSection(title: "5-HOUR RESET", time: fiveHourTime, percent: fiveHourPercent)
         let weekly = makeWidgetSection(title: "WEEKLY RESET", time: weeklyTime, percent: weeklyPercent, isSecondary: true)
         let section = NSStackView(views: [heading, fiveHour, weekly])
@@ -179,6 +240,7 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         let name = NSTextField(labelWithString: title)
         name.font = .systemFont(ofSize: isSecondary ? 7 : 9, weight: .bold)
         name.textColor = NSColor(white: 0.64, alpha: 1)
+        subheadingLabels.append(name)
         percent.font = .systemFont(ofSize: isSecondary ? 13 : 24, weight: .semibold)
         percent.textColor = .white
         time.font = .systemFont(ofSize: isSecondary ? 9 : 12, weight: .medium)
@@ -226,6 +288,53 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
     private func showFloatingWidget() {
         widgetPanel.orderFrontRegardless()
         widgetVisibilityItem.title = "Hide floating widget"
+    }
+
+    @objc private func toggleCodex(_ sender: Any?) {
+        // Never allow both sections to be hidden.
+        if showCodex && !showClaude { defaults.set(true, forKey: "showClaude") }
+        defaults.set(!showCodex, forKey: "showCodex")
+        applySettings()
+    }
+
+    @objc private func toggleClaude(_ sender: Any?) {
+        if showClaude && !showCodex { defaults.set(true, forKey: "showCodex") }
+        defaults.set(!showClaude, forKey: "showClaude")
+        applySettings()
+    }
+
+    @objc private func chooseTheme(_ sender: NSMenuItem) {
+        defaults.set(sender.representedObject as? String, forKey: "theme")
+        applySettings()
+    }
+
+    private func applySettings() {
+        showCodexItem.state = showCodex ? .on : .off
+        showClaudeItem.state = showClaude ? .on : .off
+        let t = theme
+        for item in themeItems { item.state = (item.representedObject as? String) == t.id ? .on : .off }
+
+        codexSectionView.isHidden = !showCodex
+        claudeSectionView.isHidden = !showClaude
+        sectionSeparator.isHidden = !(showCodex && showClaude)
+
+        widgetPanel.appearance = NSAppearance(named: t.dark ? .darkAqua : .aqua)
+        widgetBackground.layer?.backgroundColor = t.background.cgColor
+        widgetBackground.layer?.borderColor = t.border.cgColor
+        for label in headingLabels + subheadingLabels { label.textColor = t.secondaryText }
+        for label in [codexFiveHourPercent, codexWeeklyPercent, claudeFiveHourPercent, claudeWeeklyPercent] { label?.textColor = t.primaryText }
+        for label in [codexFiveHourTime, codexWeeklyTime, claudeFiveHourTime, claudeWeeklyTime] { label?.textColor = t.accent }
+        widgetUpdatedLabel.textColor = t.secondaryText
+
+        // Resize the panel to fit visible sections, keeping its top edge in place.
+        widgetBackground.layoutSubtreeIfNeeded()
+        let height = (showCodex && showClaude) ? 360.0 : 190.0
+        var frame = widgetPanel.frame
+        let top = frame.maxY
+        frame.size.height = height
+        frame.origin.y = top - height
+        widgetPanel.setFrame(frame, display: true)
+        widgetBackground.frame = NSRect(origin: .zero, size: frame.size)
     }
 
     @objc private func refreshNow(_ sender: Any?) {
