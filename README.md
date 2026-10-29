@@ -30,13 +30,16 @@ open "build/Codex and Claude Usage Widget.app"
 Drag the app into `/Applications` to keep it. To start it at login, add it in
 System Settings > General > Login Items.
 
+<p align="center"><img src="docs/screenshot.png" width="210" alt="Widget screenshot"></p>
+
 ## Features
 
 - Floating, draggable widget that stays on top across all Spaces
 - Remaining percentage and reset countdown for the 5-hour and weekly windows
 - Settings menu: show Codex, Claude Code, or both
 - Widget colour themes: Classic (black), Light, Midnight blue, Forest, Sunset
-- Menu bar icon with manual refresh
+- Refresh button on the widget, plus refresh from the menu bar
+- Sections hide automatically when Codex or Claude Code isn't set up
 
 ## How it reads usage
 
