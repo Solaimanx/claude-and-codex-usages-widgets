@@ -70,6 +70,10 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
     private var showCodexItem: NSMenuItem!
     private var showClaudeItem: NSMenuItem!
     private var themeItems: [NSMenuItem] = []
+    private var refreshButton: NSButton!
+    // Set after each refresh; nil means "not checked yet".
+    private var codexAvailable: Bool?
+    private var claudeAvailable: Bool?
     private let defaults = UserDefaults.standard
     private var showCodex: Bool { defaults.object(forKey: "showCodex") as? Bool ?? true }
     private var showClaude: Bool { defaults.object(forKey: "showClaude") as? Bool ?? true }
@@ -161,6 +165,13 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         background.layer?.masksToBounds = true
         widgetPanel.contentView = background
         widgetBackground = background
+        refreshButton = NSButton(image: NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Refresh")!, target: self, action: #selector(refreshNow(_:)))
+        refreshButton.isBordered = false
+        refreshButton.bezelStyle = .regularSquare
+        refreshButton.imageScaling = .scaleProportionallyDown
+        refreshButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        refreshButton.toolTip = "Refresh usage"
+        refreshButton.translatesAutoresizingMaskIntoConstraints = false
 
         codexFiveHourTime = makeWidgetValue()
         codexFiveHourPercent = makeWidgetPercent()
@@ -200,6 +211,13 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         stack.spacing = 5
         stack.translatesAutoresizingMaskIntoConstraints = false
         background.addSubview(stack)
+        background.addSubview(refreshButton)
+        NSLayoutConstraint.activate([
+            refreshButton.topAnchor.constraint(equalTo: background.topAnchor, constant: 9),
+            refreshButton.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -12),
+            refreshButton.widthAnchor.constraint(equalToConstant: 18),
+            refreshButton.heightAnchor.constraint(equalToConstant: 18)
+        ])
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: 14),
             stack.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -14),
@@ -314,9 +332,14 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         let t = theme
         for item in themeItems { item.state = (item.representedObject as? String) == t.id ? .on : .off }
 
-        codexSectionView.isHidden = !showCodex
-        claudeSectionView.isHidden = !showClaude
-        sectionSeparator.isHidden = !(showCodex && showClaude)
+        // A section shows when the user wants it AND that tool is set up.
+        // If neither tool works, fall back to the user's choice so the widget is never empty.
+        var codexVisible = showCodex && codexAvailable != false
+        var claudeVisible = showClaude && claudeAvailable != false
+        if !codexVisible && !claudeVisible { codexVisible = showCodex; claudeVisible = showClaude }
+        codexSectionView.isHidden = !codexVisible
+        claudeSectionView.isHidden = !claudeVisible
+        sectionSeparator.isHidden = !(codexVisible && claudeVisible)
 
         widgetPanel.appearance = NSAppearance(named: t.dark ? .darkAqua : .aqua)
         widgetBackground.layer?.backgroundColor = t.background.cgColor
@@ -325,10 +348,11 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         for label in [codexFiveHourPercent, codexWeeklyPercent, claudeFiveHourPercent, claudeWeeklyPercent] { label?.textColor = t.primaryText }
         for label in [codexFiveHourTime, codexWeeklyTime, claudeFiveHourTime, claudeWeeklyTime] { label?.textColor = t.accent }
         widgetUpdatedLabel.textColor = t.secondaryText
+        refreshButton.contentTintColor = t.secondaryText
 
         // Resize the panel to fit visible sections, keeping its top edge in place.
         widgetBackground.layoutSubtreeIfNeeded()
-        let height = (showCodex && showClaude) ? 360.0 : 190.0
+        let height = (codexVisible && claudeVisible) ? 360.0 : 190.0
         var frame = widgetPanel.frame
         let top = frame.maxY
         frame.size.height = height
@@ -360,6 +384,7 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         refreshMessage = "Checking Codex and Claude…"
         refreshActionItem.title = "↻  Checking latest usage…"
         refreshActionItem.isEnabled = false
+        refreshButton?.isEnabled = false
         updateLabels()
 
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -373,26 +398,32 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
                 case .success(let result):
                     self.codexFiveHour = result.0
                     self.codexWeekly = result.1
+                    self.codexAvailable = true
                 case .failure:
                     self.codexFiveHour = nil
                     self.codexWeekly = nil
+                    self.codexAvailable = false
                 }
                 switch claude {
                 case .success(let result):
                     self.claudeFiveHour = result.0
                     self.claudeWeekly = result.1
                     self.claudeStatus = "Live Claude usage"
+                    self.claudeAvailable = true
                 case .failure(let error):
                     // Keep the last good numbers if they are still in the future.
                     if let w = self.claudeWeekly, w.resetsAt < Date() { self.claudeWeekly = nil }
                     if let f = self.claudeFiveHour, f.resetsAt < Date() { self.claudeFiveHour = nil }
                     self.claudeStatus = error.localizedDescription
+                    self.claudeAvailable = self.claudeFiveHour != nil || self.claudeWeekly != nil
                     Self.log("Claude: \(error.localizedDescription)")
                 }
                 self.refreshMessage = "Updated \(self.localTime(self.snapshotUpdated!))"
                 self.refreshActionItem.title = "↻  Check for latest usage"
                 self.refreshActionItem.isEnabled = true
                 self.claudeConnectItem.title = self.claudeStatus == "Live Claude usage" ? "Claude connected · live usage" : "Connect Claude usage…"
+                self.refreshButton.isEnabled = true
+                self.applySettings()
                 self.updateLabels()
             }
         }
