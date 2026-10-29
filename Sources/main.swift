@@ -459,8 +459,9 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
                     self.claudeAvailable = true
                 case .failure(let error):
                     // Keep the last good numbers if they are still in the future.
-                    if let w = self.claudeWeekly, w.resetsAt < Date() { self.claudeWeekly = nil }
-                    if let f = self.claudeFiveHour, f.resetsAt < Date() { self.claudeFiveHour = nil }
+                    // A window whose reset time has passed is fresh again: 100% left.
+                    if let w = self.claudeWeekly, w.resetsAt < Date() { self.claudeWeekly = UsageWindow(usedPercent: 0, resetsAt: .distantFuture) }
+                    if let f = self.claudeFiveHour, f.resetsAt < Date() { self.claudeFiveHour = UsageWindow(usedPercent: 0, resetsAt: .distantFuture) }
                     self.claudeStatus = error.localizedDescription
                     self.claudeAvailable = self.claudeFiveHour != nil || self.claudeWeekly != nil
                     Self.log("Claude: \(error.localizedDescription)")
@@ -574,6 +575,8 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
             return .failure(.message("Sign in with `claude` in Terminal first"))
         }
 
+        // Back off after a rate limit so we don't keep hitting the endpoint.
+        if let until = claudeBackoffUntil, until > Date() { return .failure(.message("Rate limited, retrying soon")) }
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/usage")!)
         request.timeoutInterval = 15
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -590,6 +593,7 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         }.resume()
         _ = semaphore.wait(timeout: .now() + 20)
 
+        if status == 429 { claudeBackoffUntil = Date().addingTimeInterval(10 * 60) }
         if status == 401 { return .failure(.message("Claude token expired, run `claude` once")) }
         if status != 200 { log("Claude HTTP \(status): \(String(data: body ?? Data(), encoding: .utf8)?.prefix(300) ?? "")") }
         guard status == 200, let body,
@@ -601,6 +605,8 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         return .success((five, weekly))
     }
 
+    nonisolated(unsafe) private static var claudeBackoffUntil: Date?
+
     nonisolated static func log(_ message: String) {
         let url = URL(fileURLWithPath: NSHomeDirectory() + "/Library/Logs/CodexClaudeUsageWidget.log")
         let line = "\(Date()) \(message)\n"
@@ -610,7 +616,9 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     nonisolated private static func claudeWindow(_ raw: Any?) -> UsageWindow? {
-        guard let object = raw as? [String: Any],
+        // A null/missing window means nothing has been used since the last reset.
+        guard let object = raw as? [String: Any] else { return UsageWindow(usedPercent: 0, resetsAt: .distantFuture) }
+        guard
               let utilization = (object["utilization"] as? NSNumber)?.doubleValue else { return nil }
         let used = min(100, max(0, Int(utilization.rounded())))
         // resets_at is null when no window is active yet (nothing used since the last reset).
