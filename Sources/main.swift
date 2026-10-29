@@ -74,6 +74,9 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
     // Set after each refresh; nil means "not checked yet".
     private var codexAvailable: Bool?
     private var claudeAvailable: Bool?
+    private var codexRunning = true
+    private var claudeRunning = true
+    private var runningTimer: Timer?
     private let defaults = UserDefaults.standard
     private var showCodex: Bool { defaults.object(forKey: "showCodex") as? Bool ?? true }
     private var showClaude: Bool { defaults.object(forKey: "showClaude") as? Bool ?? true }
@@ -135,6 +138,12 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         tickTimer = Timer.scheduledTimer(timeInterval: 1, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
         timer = Timer.scheduledTimer(timeInterval: 300, target: self, selector: #selector(periodicRefresh(_:)), userInfo: nil, repeats: true)
         showFloatingWidget()
+        updateRunningState()
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+            center.addObserver(self, selector: #selector(appsChanged(_:)), name: name, object: nil)
+        }
+        runningTimer = Timer.scheduledTimer(timeInterval: 5, target: self, selector: #selector(appsChanged(_:)), userInfo: nil, repeats: true)
         refreshUsage()
     }
 
@@ -308,6 +317,43 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         widgetVisibilityItem.title = "Hide floating widget"
     }
 
+    @objc private func appsChanged(_ sender: Any?) {
+        let wasCodex = codexRunning, wasClaude = claudeRunning
+        updateRunningState()
+        if wasCodex != codexRunning || wasClaude != claudeRunning {
+            applySettings()
+            if (!wasCodex && codexRunning) || (!wasClaude && claudeRunning) { refreshUsage() }
+        }
+    }
+
+    private func updateRunningState() {
+        codexRunning = Self.isRunning(bundleID: "com.openai.codex", process: "codex")
+        claudeRunning = Self.isRunning(bundleID: "com.anthropic.claudefordesktop", process: "claude")
+    }
+
+    /// True when the desktop app is open or the CLI is running in a terminal
+    /// (ignoring the codex helper this widget starts itself).
+    nonisolated private static func isRunning(bundleID: String, process name: String) -> Bool {
+        if !NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty { return true }
+        let pgrep = Process()
+        pgrep.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        pgrep.arguments = ["-x", name]
+        let out = Pipe()
+        pgrep.standardOutput = out
+        guard (try? pgrep.run()) != nil else { return false }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        pgrep.waitUntilExit()
+        let me = getpid()
+        for pid in (String(data: data, encoding: .utf8) ?? "").split(separator: "\n").compactMap({ Int32($0) }) {
+            var info = kinfo_proc()
+            var size = MemoryLayout<kinfo_proc>.stride
+            var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+            if sysctl(&mib, 4, &info, &size, nil, 0) == 0, info.kp_eproc.e_ppid == me { continue }
+            return true
+        }
+        return false
+    }
+
     @objc private func toggleCodex(_ sender: Any?) {
         // Never allow both sections to be hidden.
         if showCodex && !showClaude { defaults.set(true, forKey: "showClaude") }
@@ -334,8 +380,9 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
 
         // A section shows when the user wants it AND that tool is set up.
         // If neither tool works, fall back to the user's choice so the widget is never empty.
-        var codexVisible = showCodex && codexAvailable != false
-        var claudeVisible = showClaude && claudeAvailable != false
+        // ...and its app or CLI is currently running.
+        var codexVisible = showCodex && codexAvailable != false && codexRunning
+        var claudeVisible = showClaude && claudeAvailable != false && claudeRunning
         if !codexVisible && !claudeVisible { codexVisible = showCodex; claudeVisible = showClaude }
         codexSectionView.isHidden = !codexVisible
         claudeSectionView.isHidden = !claudeVisible

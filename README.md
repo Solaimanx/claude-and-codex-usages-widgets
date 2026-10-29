@@ -39,7 +39,7 @@ System Settings > General > Login Items.
 - Settings menu: show Codex, Claude Code, or both
 - Widget colour themes: Classic (black), Light, Midnight blue, Forest, Sunset
 - Refresh button on the widget, plus refresh from the menu bar
-- Sections hide automatically when Codex or Claude Code isn't set up
+- Each section appears only while its app or CLI is open (Codex app / `codex`, Claude app / `claude`) and hides when you close it
 
 ## How it reads usage
 
