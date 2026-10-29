@@ -15,7 +15,7 @@ A tiny macOS menu bar app with a floating widget that shows how much of your
 
 ## Download
 
-Grab `Codex-Claude-Usage-Widget-macOS.zip` from the [latest release](https://github.com/Solaimanx/ai-usage-meter/releases/latest),
+Grab `Codex-Claude-Usage-Widget-macOS.zip` from the [latest release](https://github.com/Solaimanx/claude-and-codex-usages-widgets/releases/latest),
 unzip it and drag **Codex and Claude Usage Widget** into Applications. The app isn't notarised, so the
 first time, right-click it and choose **Open** (or run
 `xattr -dr com.apple.quarantine "/Applications/Codex and Claude Usage Widget.app"`).
