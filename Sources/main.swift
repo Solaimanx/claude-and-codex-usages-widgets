@@ -74,6 +74,7 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
     // Set after each refresh; nil means "not checked yet".
     private var codexAvailable: Bool?
     private var claudeAvailable: Bool?
+    private var userHidden = false
     private var codexRunning = true
     private var claudeRunning = true
     private var runningTimer: Timer?
@@ -137,8 +138,10 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         createFloatingWidget()
         tickTimer = Timer.scheduledTimer(timeInterval: 1, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
         timer = Timer.scheduledTimer(timeInterval: 300, target: self, selector: #selector(periodicRefresh(_:)), userInfo: nil, repeats: true)
-        showFloatingWidget()
         updateRunningState()
+        if let saved = Self.loadClaude() { claudeFiveHour = saved.0; claudeWeekly = saved.1 }
+        applySettings()
+        updateLabels()
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
             center.addObserver(self, selector: #selector(appsChanged(_:)), name: name, object: nil)
@@ -309,10 +312,12 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func hideFloatingWidget(_ sender: Any?) {
         widgetPanel.orderOut(sender)
+        userHidden = sender != nil
         widgetVisibilityItem.title = "Show floating widget"
     }
 
     private func showFloatingWidget() {
+        userHidden = false
         widgetPanel.orderFrontRegardless()
         widgetVisibilityItem.title = "Hide floating widget"
     }
@@ -381,9 +386,14 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         // A section shows when the user wants it AND that tool is set up.
         // If neither tool works, fall back to the user's choice so the widget is never empty.
         // ...and its app or CLI is currently running.
-        var codexVisible = showCodex && codexAvailable != false && codexRunning
-        var claudeVisible = showClaude && claudeAvailable != false && claudeRunning
-        if !codexVisible && !claudeVisible { codexVisible = showCodex; claudeVisible = showClaude }
+        let codexVisible = showCodex && codexRunning
+        let claudeVisible = showClaude && claudeRunning
+        // Nothing open: hide the whole widget. It comes back when Codex or Claude opens.
+        if !codexVisible && !claudeVisible {
+            if widgetPanel.isVisible { widgetPanel.orderOut(nil) }
+        } else if !userHidden && !widgetPanel.isVisible {
+            widgetPanel.orderFrontRegardless()
+        }
         codexSectionView.isHidden = !codexVisible
         claudeSectionView.isHidden = !claudeVisible
         sectionSeparator.isHidden = !(codexVisible && claudeVisible)
@@ -455,9 +465,13 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
                 case .success(let result):
                     self.claudeFiveHour = result.0
                     self.claudeWeekly = result.1
+                    Self.saveClaude(result.0, result.1)
                     self.claudeStatus = "Live Claude usage"
                     self.claudeAvailable = true
                 case .failure(let error):
+                    if self.claudeFiveHour == nil, self.claudeWeekly == nil, let saved = Self.loadClaude() {
+                        self.claudeFiveHour = saved.0; self.claudeWeekly = saved.1
+                    }
                     // Keep the last good numbers if they are still in the future.
                     // A window whose reset time has passed is fresh again: 100% left.
                     if let w = self.claudeWeekly, w.resetsAt < Date() { self.claudeWeekly = UsageWindow(usedPercent: 0, resetsAt: .distantFuture) }
@@ -603,6 +617,20 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
             return .failure(.message("Claude usage read failed (HTTP \(status))"))
         }
         return .success((five, weekly))
+    }
+
+    private static func saveClaude(_ f: UsageWindow, _ w: UsageWindow) {
+        let d = UserDefaults.standard
+        d.set([f.usedPercent, w.usedPercent], forKey: "claudeUsed")
+        d.set([f.resetsAt.timeIntervalSince1970, w.resetsAt.timeIntervalSince1970], forKey: "claudeResets")
+    }
+
+    private static func loadClaude() -> (UsageWindow, UsageWindow)? {
+        let d = UserDefaults.standard
+        guard let u = d.array(forKey: "claudeUsed") as? [Int], let t = d.array(forKey: "claudeResets") as? [Double],
+              u.count == 2, t.count == 2 else { return nil }
+        return (UsageWindow(usedPercent: u[0], resetsAt: Date(timeIntervalSince1970: t[0])),
+                UsageWindow(usedPercent: u[1], resetsAt: Date(timeIntervalSince1970: t[1])))
     }
 
     nonisolated(unsafe) private static var claudeBackoffUntil: Date?
