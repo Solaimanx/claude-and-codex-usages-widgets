@@ -570,7 +570,48 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         return candidates.first(where: { fm.isExecutableFile(atPath: $0) })
     }
 
-    nonisolated private static func fetchClaudeUsage() -> Result<(UsageWindow, UsageWindow), UsageReadError> {
+    nonisolated private static func readClaudeOAuth() -> [String: Any]? {
+        let security = Process()
+        security.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        security.arguments = ["find-generic-password", "-s", "Claude Code-credentials", "-w"]
+        let out = Pipe()
+        security.standardOutput = out
+        security.standardError = Pipe()
+        guard (try? security.run()) != nil else { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        security.waitUntilExit()
+        guard security.terminationStatus == 0,
+              let creds = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return creds["claudeAiOauth"] as? [String: Any]
+    }
+
+    nonisolated private static func tokenExpired(_ oauth: [String: Any]?) -> Bool {
+        guard let ms = (oauth?["expiresAt"] as? NSNumber)?.doubleValue else { return false }
+        return ms / 1000 < Date().timeIntervalSince1970 + 60
+    }
+
+    /// Let the Claude Code CLI renew its own sign-in, the same as running `claude` in Terminal.
+    nonisolated private static func renewClaudeToken() {
+        func run(_ cmd: String) {
+            let shell = Process()
+            shell.executableURL = URL(fileURLWithPath: "/bin/zsh")
+            shell.arguments = ["-lic", cmd]
+            shell.standardOutput = Pipe(); shell.standardError = Pipe()
+            shell.standardInput = FileHandle.nullDevice
+            guard (try? shell.run()) != nil else { return }
+            let deadline = Date().addingTimeInterval(60)
+            while shell.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.5) }
+            if shell.isRunning { shell.terminate() }
+        }
+        log("Claude token expired, renewing via claude CLI")
+        run("claude auth status")
+        if tokenExpired(readClaudeOAuth()) { run("claude -p ok --max-turns 1") }
+        claudeBackoffUntil = nil
+        log(tokenExpired(readClaudeOAuth()) ? "Claude token renewal failed" : "Claude token renewed")
+    }
+
+    nonisolated private static func fetchClaudeUsage(retried: Bool = false) -> Result<(UsageWindow, UsageWindow), UsageReadError> {
+        if !retried, tokenExpired(readClaudeOAuth()) { renewClaudeToken() }
         // Read the Claude Code OAuth token from the login Keychain (written by `claude login`).
         let security = Process()
         security.executableURL = URL(fileURLWithPath: "/usr/bin/security")
@@ -608,6 +649,7 @@ final class AIUsageMeterAppDelegate: NSObject, NSApplicationDelegate {
         _ = semaphore.wait(timeout: .now() + 20)
 
         if status == 429 { claudeBackoffUntil = Date().addingTimeInterval(10 * 60) }
+        if status == 401 && !retried { renewClaudeToken(); return fetchClaudeUsage(retried: true) }
         if status == 401 { return .failure(.message("Claude token expired, run `claude` once")) }
         if status != 200 { log("Claude HTTP \(status): \(String(data: body ?? Data(), encoding: .utf8)?.prefix(300) ?? "")") }
         guard status == 200, let body,
